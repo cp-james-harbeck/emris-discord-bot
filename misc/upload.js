@@ -1,0 +1,194 @@
+// const {
+//     ChatInputCommand
+// } = require('../../classes/Commands');
+// const {
+//     EmbedBuilder
+// } = require('discord.js');
+// const axios = require('axios');
+// const fs = require('fs');
+// const FormData = require('form-data');
+// const tmp = require('tmp');
+
+// async function uploadAndReadFile(file) {
+//     try {
+//         const formData = new FormData();
+//         formData.append('purpose', 'answers');
+//         formData.append('file', fs.createReadStream(file));
+
+//         const response = await axios.post(
+//             'https://api.openai.com/v1/files',
+//             formData, {
+//                 headers: {
+//                     'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+//                     ...formData.getHeaders(),
+//                 },
+//             }
+//         );
+
+//         const file_id = response.data.id;
+//         const fileContentResponse = await axios.get(`https://api.openai.com/v1/files/${file_id}/content`, {
+//             headers: {
+//                 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+//             },
+//         });
+
+//         return fileContentResponse.data;
+//     } catch (error) {
+//         console.error(error);
+//         return {
+//             error: 'Error: Unable to upload and read the file.'
+//         };
+//     }
+// }
+
+// async function getGPTResponse(prompt, fileContent, model) {
+//     try {
+//         const response = await axios.post(
+//             'https://api.openai.com/v1/chat/completions', {
+//                 model,
+//                 messages: [{
+//                         role: 'system',
+//                         content: `You have just uploaded a document. Its content is:\n\n${fileContent}\n\nPlease ask questions or provide prompts about the content of the document.`,
+//                     },
+//                     {
+//                         role: 'user',
+//                         content: prompt,
+//                     },
+//                 ],
+//                 temperature: 0.7,
+//                 max_tokens: 300,
+//             }, {
+//                 headers: {
+//                     'Content-Type': 'application/json',
+//                     'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+//                 },
+//             }
+//         );
+
+//         const aiResponse = response.data.choices[0].message.content ? response.data.choices[0].message.content.trim() : 'Error: Unable to generate a response.';
+//         return aiResponse;
+//     } catch (error) {
+//         console.error(error);
+//         return 'Error: Unable to generate a response.';
+//     }
+// }
+
+// module.exports = new ChatInputCommand({
+//     global: true,
+//     aliases: ['upload'],
+//     cooldown: {
+//         type: 'user',
+//         usages: 2,
+//         duration: 10,
+//     },
+//     clientPerms: ['EmbedLinks'],
+//     data: {
+//         description: 'Upload a file and ask GPT-3.5-turbo a question or give a prompt about the content of the file.',
+//     },
+//     run: async (client, interaction) => {
+//         const attachments = interaction.attachments?.array() || [];
+
+//         if (attachments.length === 0) {
+//             return interaction.reply({
+//                 content: 'You must attach a file to use this command.',
+//                 ephemeral: true,
+//             });
+//         }
+
+//         await interaction.deferReply();
+
+//         const attachment = attachments[0];
+//         const filePath = tmp.tmpNameSync();
+//         const response = await axios.get(attachment.url, {
+//             responseType: 'stream'
+//         });
+//         const fileStream = fs.createWriteStream(filePath);
+//         await new Promise((resolve, reject) => {
+//             response.data.pipe(fileStream);
+//             response.data.on('end', resolve);
+//             response.data.on('error', reject);
+//         });
+
+//         const fileContentResult = await uploadAndReadFile(filePath);
+
+//         if (fileContentResult.error) {
+//             await interaction.editReply(fileContentResult.error);
+//             return;
+//         }
+
+//         const fileContent = fileContentResult;
+
+//         const prompt = await interaction.channel.awaitMessages({
+//             max: 1,
+//             time: 60000,
+//             errors: ['time'],
+//             filter: (msg) => msg.author.id === interaction.user.id,
+//         }).catch(() => {
+//             interaction.editReply('Prompt input time expired. Please try again.');
+//         });
+
+//         if (!prompt) return;
+
+//         const model = 'gpt-3.5-turbo';
+//         const aiResponse = await getGPTResponse(prompt.first().content, fileContent, model);
+
+//         const embed = new EmbedBuilder()
+//             .setTitle('GPT-3.5-turbo Response')
+//             .setDescription(aiResponse)
+//             .setColor(0x00ff00)
+//             .setTimestamp()
+//             .setFooter({
+//                 text: `Trained on data up until 9/2021 | Generated by ${client.user.username}`
+//             });
+
+//         await interaction.editReply({
+//             embeds: [embed]
+//         });
+
+//         // Allow fine-tuning
+//         const shouldFineTune = await interaction.channel.awaitMessages({
+//             max: 1,
+//             time: 60000,
+//             errors: ['time'],
+//             filter: (msg) => msg.author.id === interaction.user.id && (msg.content.toLowerCase() === 'yes' || msg.content.toLowerCase() === 'no')
+//         }).catch(() => {
+//             interaction.editReply('Fine-tuning input time expired. Continuing without fine-tuning.');
+//         });
+
+//         if (shouldFineTune && shouldFineTune.first().content.toLowerCase() === 'yes') {
+//             // Upload file to OpenAI
+//             const fineTuneFile = await interaction.channel.awaitMessages({
+//                 max: 1,
+//                 time: 60000,
+//                 errors: ['time'],
+//                 filter: (msg) => msg.author.id === interaction.user.id && msg.attachments.size > 0
+//             }).catch(() => {
+//                 interaction.editReply('Fine-tuning input time expired. Continuing without fine-tuning.');
+//             });
+
+//             if (fineTuneFile) {
+//                 const fineTuneAttachment = fineTuneFile.first().attachments.first();
+//                 const fineTuneFilePath = tmp.tmpNameSync();
+//                 const fineTuneResponse = await axios.get(fineTuneAttachment.url, {
+//                     responseType: 'stream'
+//                 });
+//                 const fineTuneFileStream = fs.createWriteStream(fineTuneFilePath);
+//                 await new Promise((resolve, reject) => {
+//                     fineTuneResponse.data.pipe(fineTuneFileStream);
+//                     fineTuneResponse.data.on('end', resolve);
+//                     fineTuneResponse.data.on('error', reject);
+//                 });
+
+//                 // Continue fine-tuning from current model
+//                 const fineTuneModel = `${model}:ft-myserver-${Date.now()}`;
+//                 const learningRateMultiplier = 1;
+//                 // Fine-tune with new data
+
+//                 // ...
+
+//                 await interaction.followUp('Fine-tuning complete.');
+//             }
+//         }
+//     },
+
+// });

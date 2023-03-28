@@ -1,0 +1,204 @@
+// This code is used to handle payments for DALL·E image generation
+const { ChatInputCommand } = require('../../classes/Commands');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { getImageResponse, getTotalCost, updateTotalCost } = require('../../handlers/openai/OpenAIManager');
+const HandCashManager = require('../../handlers/handcash/HandCashManager');
+const redis = require('async-redis');
+const Permissions = require('../../handlers/Permissions');
+const { handCashAppId, handCashAppSecret, redisUrl, webhookUrl } = require('../../config/handcash');
+
+// Create a new instance of the HandCashManager class
+const handCashManager = new HandCashManager(handCashAppId, handCashAppSecret);
+
+// Create a new Redis client
+const redisClient = redis.createClient(redisUrl);
+
+// Handle errors when connecting to Redis
+redisClient.on('error', (error) => {
+    console.error('Redis error:', error);
+});
+
+// Get the user's authentication token from Redis
+async function getUserAuthToken(userId, redisClient) {
+    try {
+        // Check if the Redis client is connected before executing Redis commands
+        if (redisClient.connected) {
+            const authToken = await new Promise((resolve, reject) => {
+                redisClient.get(`authToken:${userId}`, (err, authToken) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(authToken);
+                    }
+                });
+            });
+            return authToken;
+        } else {
+            throw new Error('Redis client is not connected');
+        }
+    } catch (err) {
+        console.error('Error getting user auth token: ', err);
+        return null;
+    }
+}
+
+// Set the user's authentication token in Redis
+function setUserAuthToken(userId, authToken, redisClient) {
+    redisClient.set(`authToken:${userId}`, authToken);
+}
+
+// Get the user's payment status from Redis
+async function getUserPaymentStatus(userId) {
+    try {
+        // Connect to Redis before executing Redis commands
+        await new Promise((resolve, reject) => {
+            redisClient.on('ready', () => {
+                resolve();
+            });
+            redisClient.on('error', (error) => {
+                reject(error);
+            });
+        });
+
+        const status = await new Promise((resolve, reject) => {
+            redisClient.get(`paymentStatus:${userId}`, (err, status) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(status);
+                }
+            });
+        });
+
+        return status;
+    } catch (err) {
+        console.error('Error getting user payment status: ', err);
+        return null;
+    }
+}
+
+// Update the user's payment status in Redis
+function updateUserPaymentStatus(userId, status) {
+    redisClient.set(`paymentStatus:${userId}`, status);
+}
+
+// Handle the payment process
+async function handlePayment(interaction) {
+    const userId = interaction.user.id;
+    const authToken = await getUserAuthToken(userId, redisClient);
+
+    if (!authToken) {
+        const redirectUrl = handCashManager.getRedirectionUrl({
+            permissions: [Permissions.Pay],
+            state: JSON.stringify({
+                userId
+            }),
+        });
+        await interaction.followUp({
+            content: `Please authenticate and grant the "Pay" permission by visiting the following URL: ${redirectUrl}`
+        });
+        return;
+    }
+
+    const cloudAccount = handCashManager.getAccountFromAuthToken(authToken);
+    const userPermissions = await cloudAccount.profile.getPermissions();
+    if (!userPermissions.includes(Permissions.Pay)) {
+        const redirectUrl = handCashManager.getRedirectionUrl({
+            permissions: [Permissions.Pay],
+            state: JSON.stringify({
+                userId
+            }),
+        });
+        await interaction.followUp({
+            content: `Please authenticate and grant the "Pay" permission by visiting the following URL: ${redirectUrl}`
+        });
+        return;
+    }
+
+    try {
+        const paymentRequestUrl = await handCashManager.chargeConnectedUser(userId, 0.03, webhookUrl);
+        await interaction.followUp({
+            content: `Please complete the payment by visiting the following URL: ${paymentRequestUrl}`
+        });
+        updateUserPaymentStatus(userId, 'PENDING');
+    } catch (error) {
+        console.error(error);
+        await interaction.followUp({
+            content: 'Error creating payment request. Please try again.'
+        });
+    }
+}
+
+// Generate an embed with the generated image
+function embedImage(title, url, cost) {
+    return new EmbedBuilder()
+        .setColor(0x19C37D)
+        .setTitle(title.toUpperCase())
+        .setAuthor({
+            name: 'OpenAI',
+            url: 'https://openai.com'
+        })
+        .setImage(url)
+        .setFooter({
+            text: `Image generated by DALL·E Artificial Intelligence | Cost: $${cost.toFixed(2)} | Total Cost: $${getTotalCost().toFixed(2)}`,
+        });
+}
+
+// Export the command
+module.exports = new ChatInputCommand({
+    global: true,
+    aliases: ['dalle'],
+    cooldown: {
+        type: 'user',
+        usages: 25,
+        duration: 86400,
+    },
+    clientPerms: ['EmbedLinks'],
+    data: {
+        description: 'Generate an image using DALL·E model based on a text prompt.',
+        options: [{
+            type: 3,
+            name: 'prompt',
+            description: 'The text prompt for DALL·E image generation',
+            required: true,
+        }, ],
+    },
+    run: async (client, interaction) => {
+        try {
+            const userId = interaction.user.id;
+            const userPaymentStatus = await getUserPaymentStatus(userId);
+    
+            if (userPaymentStatus !== 'PAID') {
+                await handlePayment(interaction);
+                return;
+            }
+    
+            const prompt = interaction.options.getString('prompt');
+            await interaction.deferReply();
+            const imageURL = await getImageResponse(prompt);
+            const costPerImage = parseFloat(process.env.COST_PER_IMAGE);
+    
+            if (imageURL.startsWith('http') || imageURL.startsWith('attachment')) {
+                updateTotalCost(costPerImage);
+                await interaction.editReply({
+                    embeds: [embedImage(prompt, imageURL, costPerImage)],
+                });
+            } else {
+                const errorEmbed = new EmbedBuilder()
+                    .setTitle('DALL·E Image Generation')
+                    .setDescription('Error: Unable to generate an image. Please try again.')
+                    .setColor(0xff0000);
+    
+                await interaction.editReply({
+                    embeds: [errorEmbed]
+                });
+            }
+        } catch (error) {
+            console.error('Error executing command: ', error);
+            await interaction.reply({
+                content: 'An error occurred while executing this command. Please try again later.',
+                ephemeral: true
+            });
+        }
+    },
+});
