@@ -1,8 +1,6 @@
-// Require axios and config/handcash
 const axios = require("axios").default;
 const config = require('../../config/handcash');
 
-// Create a payment request object
 function createPaymentRequest(product, receivers, webhookUrl, customParameters) {
     return {
         product,
@@ -13,16 +11,14 @@ function createPaymentRequest(product, receivers, webhookUrl, customParameters) 
                 customParameters,
                 webhookUrl,
             },
-            email: 'jamesharbeck@cipherproxy.com',
+            email: config.email,
         },
         expirationType: 'never',
-        redirectUrl: 'https://cipherproxy.com/',
+        redirectUrl: config.redirectUrl,
     };
 }
 
-// Send the payment request to HandCash
-async function sendPaymentRequest(paymentRequest) {
-    const webhookUrl = config.webhookUrl;
+async function sendPaymentRequest(paymentRequest, authToken) {
     const options = {
         method: 'POST',
         url: 'https://cloud.handcash.io/v2/paymentRequests',
@@ -31,6 +27,7 @@ async function sendPaymentRequest(paymentRequest) {
             'Content-Type': 'application/json',
             'app-secret': config.handCashAppSecret,
             'app-id': config.handCashAppId,
+            'Authorization': `Bearer ${authToken}`,
         },
         data: paymentRequest,
     };
@@ -44,7 +41,6 @@ async function sendPaymentRequest(paymentRequest) {
     }
 }
 
-// Export functions
 module.exports = {
     createPaymentRequest,
     sendPaymentRequest,

@@ -1,9 +1,5 @@
-const {
-    ChatInputCommand
-} = require('../../classes/Commands');
-const {
-    EmbedBuilder
-} = require('discord.js');
+const { ChatInputCommand } = require('../../classes/Commands');
+const { EmbedBuilder } = require('discord.js');
 const OpenAIManager = require('../../handlers/openai/OpenAIManager');
 
 module.exports = new ChatInputCommand({

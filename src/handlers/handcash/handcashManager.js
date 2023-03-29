@@ -1,67 +1,73 @@
-const axios = require('axios'); // Importing axios library
-const { HandCashConnect, Permissions } = require('@handcash/handcash-connect'); // Importing HandCashConnect and Permissions from @handcash/handcash-connect
-const HandCashAuth = require('./handcashAuth'); // Importing HandCashAuth class from handcashAuth.js
-const { createPaymentRequest, sendPaymentRequest, } = require('./handcashpayment'); // Importing createPaymentRequest and sendPaymentRequest functions from handcashpayment.js
+const { HandCashConnect, Permissions } = require('@handcash/handcash-connect');
+const HandCashAuth = require('./HandCashAuth');
+const { createPaymentRequest, sendPaymentRequest } = require('./HandCashPayment');
+const config = require('../../config/handcash');
 
 class HandCashManager {
-    constructor(appId, appSecret) { // Constructor for HandCashManager class
-        this.appId = appId;
-        this.appSecret = appSecret;
-        this.handCashConnect = new HandCashConnect({ // Creating instance of HandCashConnect
-            appId,
-            appSecret
+    constructor(redisHandler) {
+        this.redisHandler = redisHandler;
+        this.handCashConnect = new HandCashConnect({
+            appId: config.handCashAppId,
+            appSecret: config.handCashAppSecret,
         });
-        this.handCashAuth = new HandCashAuth(); // Creating instance of HandCashAuth
+        this.handCashAuth = new HandCashAuth(redisHandler);
     }
 
-    async createPaymentRequest(paymentData, webhookUrl, authToken) { // Function to create payment request
-        const paymentRequest = createPaymentRequest(paymentData.product, paymentData.receivers, webhookUrl, paymentData.customParameters); // Creating payment request using imported function
-        const response = await sendPaymentRequest(paymentRequest); // Sending payment request using imported function
+    async createPaymentRequest(paymentData, webhookUrl, authToken) {
+        const paymentRequest = createPaymentRequest(paymentData.product, paymentData.receivers, webhookUrl, paymentData.customParameters);
+        const response = await sendPaymentRequest(paymentRequest, authToken);
         return response;
-    }
+    }    
 
-    async chargeConnectedUserWithAuthToken(userId, authToken, amount, webhookUrl) { // Function to charge connected user with auth token
-        const paymentData = { // Payment data object
+    async chargeConnectedUserWithAuthToken(userId, authToken, amount) {
+        const paymentData = {
             product: {
                 name: 'AI Interaction',
                 description: 'Charge for AI Interaction',
             },
-            receivers: [{
-                currencyCode: 'USD',
-                sendAmount: amount,
-                destination: '$handle', // Replace this with the HandCash handle to receive the payment
-            }, ],
+            receivers: [
+                {
+                    currencyCode: 'USD',
+                    sendAmount: amount,
+                    destination: config.paymentDestinationHandle,
+                },
+            ],
             requestedUserData: ['paymail'],
-            customParameters: {
-                userId: userId,
-                webhookUrl: webhookUrl
-            },
-            email: 'your@email.com',
+            customParameters: { userId, webhookUrl: config.webhookUrl },
+            email: config.email,
             expirationType: 'never',
-            redirectUrl: 'https://yourapp.com/success',
+            redirectUrl: config.redirectUrl,
         };
 
-        const paymentRequest = await this.createPaymentRequest(paymentData, webhookUrl, authToken); // Calling createPaymentRequest function
 
-        return paymentRequest.paymentRequestUrl; // Returning payment request URL
+        const paymentRequest = await this.createPaymentRequest(paymentData, config.webhookUrl, authToken);
+
+        return paymentRequest.paymentRequestUrl;
     }
 
-    async checkUserPermissions(userId) { // Function to check user permissions
-        const authToken = await this.handCashAuth.getAuthTokenForUser(userId); // Getting auth token for user
-        const cloudAccount = this.handCashConnect.getAccountFromAuthToken(authToken); // Getting cloud account from auth token
-        const userPermissions = await cloudAccount.profile.getPermissions(); // Getting user permissions
-        return userPermissions; // Returning user permissions
+    async checkUserPermissions(userId) {
+        const authToken = await this.handCashAuth.getAuthTokenForUser(userId);
+        const cloudAccount = this.handCashConnect.getAccountFromAuthToken(
+          authToken
+        );
+        const userPermissions = await cloudAccount.profile.getPermissions();
+    
+        return {
+          hasPayPermission: userPermissions.includes(Permissions.Pay),
+          permissions: userPermissions,
+        };
     }
+    
 
-    async requestUserPermission(userId, permission) { // Function to request user permission
-        const authToken = await this.handCashAuth.getAuthTokenForUser(userId); // Getting auth token for user
-        const cloudAccount = this.handCashConnect.getAccountFromAuthToken(authToken); // Getting cloud account from auth token
-        const userPermissions = await cloudAccount.profile.getPermissions(); // Getting user permissions
+    async requestUserPermission(userId, permission) {
+        const authToken = await this.handCashAuth.getAuthTokenForUser(userId);
+        const cloudAccount = this.handCashConnect.getAccountFromAuthToken(authToken);
+        const userPermissions = await cloudAccount.profile.getPermissions();
 
-        if (userPermissions.includes(permission)) { // Checking if user has permission
+        if (userPermissions.includes(permission)) {
             return true;
         } else {
-            const redirectionUrl = this.handCashConnect.getRedirectionUrl({ // Getting redirection URL
+            const redirectionUrl = this.handCashConnect.getRedirectionUrl({
                 state: {
                     userId,
                     permission
@@ -75,4 +81,5 @@ class HandCashManager {
     }
 }
 
-module.exports = HandCashManager; // Exporting HandCashManager class
+module.exports = HandCashManager;
+console.log('Exported HandCashManager:', HandCashManager);

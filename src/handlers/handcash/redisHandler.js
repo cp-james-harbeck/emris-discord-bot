@@ -1,43 +1,50 @@
-// Require the Redis module
-const redis = require('redis');
+const asyncRedis = require('async-redis');
+const config = require('../../config/handcash');
 
-// Create a new Redis client with the given URL
-const redisClient = redis.createClient(redisUrl)
+class RedisHandler {
+  constructor() {
+    this.client = asyncRedis.createClient(config.redisUrl);
+  }
 
-// Get the authToken for the user from Redis
-async function getUserAuthToken(userId) {
-    return new Promise(async (resolve, reject) => {
-        try {
-            // Get the authToken from Redis
-            redisClient.get(userId, (error, result) => {
-                if (error) {
-                    reject(error);
-                } else {
-                    resolve(result);
-                }
-            });
-        } catch (error) {
-            console.error(error);
-            reject(error);
-        }
-    });
+  async getUserAuthToken(userId) {
+    try {
+      const authToken = await this.client.get(`authToken:${userId}`);
+      return authToken;
+    } catch (error) {
+      console.error('Error getting user auth token:', error);
+      throw error;
+    }
+  }
+
+  async setUserAuthToken(userId, authToken) {
+    try {
+      await this.client.set(`authToken:${userId}`, authToken);
+    } catch (error) {
+      console.error('Error saving user auth token:', error);
+      throw error;
+    }
+  }
+
+  async deleteUserAuthToken(userId) {
+    try {
+      await this.client.del(`authToken:${userId}`);
+    } catch (error) {
+      console.error('Error deleting user auth token:', error);
+      throw error;
+    }
+  }
+
+async getUserPaymentStatus(userId) {
+    try {
+      const paymentStatus = await this.client.get(`paymentStatus:${userId}`);
+      return paymentStatus;
+    } catch (error) {
+      console.error('Error getting user payment status:', error);
+      throw error;
+    }
+  }
 }
 
-// Save the authToken for the user to Redis
-function saveUserAuthToken(userId, authToken) {
-    // Set the authToken in Redis
-    redisClient.set(userId, authToken);
-}
+module.exports = RedisHandler;
 
-// Delete the authToken for the user from Redis
-function deleteUserAuthToken(userId) {
-    // Delete the authToken from Redis
-    redisClient.del(userId);
-}
 
-// Export the functions
-module.exports = {
-    getUserAuthToken,
-    saveUserAuthToken,
-    deleteUserAuthToken,
-};
