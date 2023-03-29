@@ -118,5 +118,5 @@ app.use((error, res) => {
 app.listen(PORT, () => {
   logger.success(chalk.yellow.bold(`API running in ${NODE_ENV}-mode on port ${PORT}`));
 }).on('error', (error) => {
-  logger.error(chalk.red(`Server error: ${error.message}`));
+  logger.syserr(chalk.red(`Server error: ${error.message}`));
 });
