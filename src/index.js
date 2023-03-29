@@ -207,5 +207,3 @@ if (USE_API === 'true') require('./server/');
 if (modeArg && modeArg.endsWith('test')) process.exit(1);
 
 client.login(DISCORD_BOT_TOKEN);
-
-module.exports = client;
