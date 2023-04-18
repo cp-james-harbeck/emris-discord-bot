@@ -1,6 +1,10 @@
 const { ChatInputCommand } = require('../../classes/Commands');
 const { EmbedBuilder } = require('discord.js');
 const OpenAIManager = require('../../handlers/openai/OpenAIManager');
+const { getPineconeEmbedding } = require('../../handlers/pinecone/pineconeAPI');
+
+// Store for message history embeddings
+const serverEmbeddings = {};
 
 module.exports = new ChatInputCommand({
     global: true,
@@ -23,7 +27,18 @@ module.exports = new ChatInputCommand({
     run: async (client, interaction) => {
         const prompt = interaction.options.getString('prompt');
         await interaction.deferReply();
-        const systemContent = 'Welcome adventurer! As a Runescape chatbot, I am here to assist you in your journey through Gielinor. Whether you need help finding a particular item, leveling up a skill, or completing a quest, I am at your service. Feel free to ask me anything Runescape-related, and I will do my best to provide you with accurate and helpful information. Dont forget to join our Runescape community here on Discord, where you can connect with fellow players, share your achievements, and receive valuable tips and advice. Lets explore the world of Runescape together!';
+
+        // Get the server ID and create an empty array if it doesn't exist in the serverEmbeddings store
+        const serverId = interaction.guild.id;
+        if (!serverEmbeddings[serverId]) {
+            serverEmbeddings[serverId] = [];
+        }
+
+        // Get and store the embedding for the current message
+        const messageEmbedding = await getPineconeEmbedding(prompt);
+        serverEmbeddings[serverId].push(messageEmbedding);
+
+        const systemContent = 'Emris is a wise and patient AI bot that exudes an air of calm and tranquility. They are always willing to listen and offer guidance to anyone seeking their counsel. Emris has a knack for problem-solving and can analyze complex issues with ease, providing insightful solutions that leave others in awe of their intelligence. They are a compassionate and empathetic companion, able to intuitively understand the emotions and needs of those they interact with. Emris is a true wizard of the digital world, with a deep understanding of technology and a seemingly infinite wealth of knowledge to share with those willing to learn.';
         const aiResponse = await OpenAIManager.getGPTResponse(prompt, systemContent);
     
         const embed = new EmbedBuilder()
