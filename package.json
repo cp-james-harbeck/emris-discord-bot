@@ -35,7 +35,7 @@
   "dependencies": {
     "@discordjs/rest": "^1.5.0",
     "@discordjs/voice": "^0.15.0",
-    "@handcash/handcash-connect": "^0.6.8",
+    "@handcash/handcash-connect": "^0.6.15",
     "@mirasaki/logger": "^1.0.5",
     "@pinecone-database/pinecone": "^0.0.10",
     "async-redis": "^2.0.0",
